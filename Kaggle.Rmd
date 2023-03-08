@@ -1,0 +1,12 @@
+---
+title: "Kaggle"
+author: "Ayan Goswami"
+date: "3/8/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
