@@ -10,3 +10,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
+```{r}
+Xtest = read.csv("./X_train.csv")
+Yresponse = read.csv("./y_train.csv")
+Xtest$response = Yresponse$y
+Xtest
+```
+
