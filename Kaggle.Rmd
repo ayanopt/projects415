@@ -9,11 +9,78 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Read in data
 
 ```{r}
 Xtrain = read.csv("./X_train.csv")
 Yresponse = read.csv("./y_train.csv")
 Xtrain$response = Yresponse$y
-Xtrain
+Xtest = read.csv("./X_test.csv")
+answer = read.csv("./y_sample.csv")
 ```
+
+Dummy submission
+```{r}
+lm1 = lm(data=  Xtrain, response ~ .)
+r = predict(lm1, newdata= Xtest)
+df = data.frame(SEQN = answer$SEQN, y = r)
+write.csv(df, "first_submission.csv")
+```
+`R squared = 0.418`
+Perform Ridge regression to shrink variables that don't affect the response as much. Find best lambda and use that for the most accuracy.
+```{r}
+library(glmnet)
+set.seed(1)
+X = model.matrix(response ~ ., Xtrain)[, -1]
+y = Xtrain$response
+#train_idx <- sample(1:nrow(X), floor(nrow(X)/2), replace = FALSE)
+cv.out <- cv.glmnet(X, y, alpha = 0)
+plot(cv.out)
+bestlam <- cv.out$lambda.min
+ridge.mod <- glmnet(X, y, alpha = 0)
+```
+```{r}
+df = data.frame(SEQN = answer$SEQN, y = predict(ridge.mod, s = bestlam, newx = as.matrix(Xtest)))
+write.csv(df, "ridge_submission.csv")
+```
+`R squared = 0.419`
+Perform subset selection
+```{r}
+#library(SignifReg)
+#nullmodel <- lm(response ~ 1, data = Xtrain)
+#fullmodel <- lm(response ~ ., data = Xtrain)
+#select.p.fwd <- SignifReg(fit = nullmodel, 
+#                          scope = list(lower = #formula(nullmodel), upper = formula(fullmodel)), 
+#                          alpha = 0.05, direction = "forward",
+#                          adjust.method = "none", trace = FALSE)
+#summary(select.p.fwd)
+```
+Use AIC for smallest model
+
+```{r}
+select.p.fwd = lm(formula = response ~ BMXHT + BMXWT + RIAGENDR + DR1TSUGR + 
+    DMDBORN4 + SMAQUEX2 + BPACSZ + DMDHRGND + DR1TTFAT + BMXARML + 
+    DMDHHSIZ + BMXWAIST + BMXSAD1 + LBDTCSI + DR1TALCO + BPXPLS + 
+    BMXBMI + BMXLEG + BPXPTY + WTMEC2YR + DR1BWATZ, data = Xtrain)
+df = data.frame(SEQN = answer$SEQN, y = predict(select.p.fwd, new = Xtest))
+write.csv(df, "first_submission.csv")
+```
+```{r}
+library(glmnet)
+set.seed(1)
+X = model.matrix(response ~ BMXHT + BMXWT + RIAGENDR + DR1TSUGR + 
+    DMDBORN4 + SMAQUEX2 + BPACSZ + DMDHRGND + DR1TTFAT + BMXARML + 
+    DMDHHSIZ + BMXWAIST + BMXSAD1 + LBDTCSI + DR1TALCO + BPXPLS + 
+    BMXBMI + BMXLEG + BPXPTY + WTMEC2YR + DR1BWATZ, data = Xtrain)[, -1]
+y = Xtrain$response
+#train_idx <- sample(1:nrow(X), floor(nrow(X)/2), replace = FALSE)
+cv.out <- cv.glmnet(X, y, alpha = 0)
+plot(cv.out)
+bestlam <- cv.out$lambda.min
+ridge.mod <- glmnet(X, y, alpha = 0)
+```
+
+```{r}
+```
+
 
