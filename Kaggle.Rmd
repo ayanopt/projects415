@@ -46,14 +46,14 @@ write.csv(df, "ridge_submission.csv")
 `R squared = 0.419`
 Perform subset selection
 ```{r}
-#library(SignifReg)
-#nullmodel <- lm(response ~ 1, data = Xtrain)
-#fullmodel <- lm(response ~ ., data = Xtrain)
-#select.p.fwd <- SignifReg(fit = nullmodel, 
-#                          scope = list(lower = #formula(nullmodel), upper = formula(fullmodel)), 
-#                          alpha = 0.05, direction = "forward",
-#                          adjust.method = "none", trace = FALSE)
-#summary(select.p.fwd)
+library(SignifReg)
+nullmodel <- lm(response ~ 1, data = Xtrain)
+fullmodel <- lm(response ~ ., data = Xtrain)
+select.p.fwd <- SignifReg(fit = nullmodel, 
+                          scope = list(lower = formula(nullmodel), upper = formula(fullmodel)), 
+                          alpha = 0.05, direction = "forward",
+                          adjust.method = "none", trace = FALSE)
+summary(select.p.fwd)
 ```
 Use AIC for smallest model
 
@@ -66,21 +66,43 @@ df = data.frame(SEQN = answer$SEQN, y = predict(select.p.fwd, new = Xtest))
 write.csv(df, "first_submission.csv")
 ```
 ```{r}
-library(glmnet)
-set.seed(1)
-X = model.matrix(response ~ BMXHT + BMXWT + RIAGENDR + DR1TSUGR + 
-    DMDBORN4 + SMAQUEX2 + BPACSZ + DMDHRGND + DR1TTFAT + BMXARML + 
-    DMDHHSIZ + BMXWAIST + BMXSAD1 + LBDTCSI + DR1TALCO + BPXPLS + 
-    BMXBMI + BMXLEG + BPXPTY + WTMEC2YR + DR1BWATZ, data = Xtrain)[, -1]
-y = Xtrain$response
-#train_idx <- sample(1:nrow(X), floor(nrow(X)/2), replace = FALSE)
-cv.out <- cv.glmnet(X, y, alpha = 0)
-plot(cv.out)
-bestlam <- cv.out$lambda.min
-ridge.mod <- glmnet(X, y, alpha = 0)
+plot(ifelse(Xtrain$DR1BWATZ==0,Xtrain$DR1BWATZ,log(Xtrain$DR1BWATZ)),Xtrain$response)
 ```
 
+`R squared 0.425`
 ```{r}
+temp_lm = lm(, data = Xtrain)
+    
+summary(temp_lm)
+```
+
+```{r, warning=F}
+library(splines)
+err = c()
+err2 = c()
+set.seed(1)
+for (i in 1:500){
+    subsetX = Xtrain[-i,]
+    
+    temp_lm = lm(response ~ poly(BMXHT,3) + poly(BMXWT,2) + RIAGENDR + poly(DR1TSUGR,1):DMDBORN4 + DMDBORN4 + SMAQUEX2 + ns(BPACSZ,3) + DMDHRGND + poly(DR1TTFAT,2):DMDBORN4 + (BMXARML) +  ns(DMDHHSIZ,5) +(BMXWAIST) + (BMXSAD1) + poly(LBDTCSI,3):SMAQUEX2 +  poly(BMXBMI,2) + poly(BMXLEG,2) + BPXPTY + log(WTMEC2YR) +ifelse(DR1TALCO>0,log(DR1TALCO),0), data = subsetX)
+    
+    select.p.fwdX = lm(formula = response ~ BMXHT + BMXWT + RIAGENDR + DR1TSUGR + 
+    DMDBORN4 + SMAQUEX2 + BPACSZ + DMDHRGND + DR1TTFAT + BMXARML + 
+    DMDHHSIZ + BMXWAIST + BMXSAD1 + LBDTCSI + DR1TALCO + BPXPLS + 
+    BMXBMI + BMXLEG + BPXPTY + WTMEC2YR + DR1BWATZ, data = subsetX)
+    
+    pred_temp  = predict(temp_lm, newdata = Xtrain[i,])
+    err2 = c(err, (predict(select.p.fwdX, newdata = Xtrain[i,])-Xtrain$response[i])**2)
+    err = c(err, (pred_temp-Xtrain$response[i])**2)
+}
+mean(err)
+mean(err2)
+
+
+
+```
+
+```{r}  
 ```
 
 
