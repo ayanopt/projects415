@@ -18,91 +18,123 @@ Xtrain$response = Yresponse$y
 Xtest = read.csv("./X_test.csv")
 answer = read.csv("./y_sample.csv")
 ```
+```{r}
+smp = sample(nrow(Xtrain),0.7*nrow(Xtrain))
+XTrain_train = Xtrain[smp,]
+XTrain_test = Xtrain[-smp,]
+
+```
+
 
 Dummy submission
 ```{r}
-lm1 = lm(data=  Xtrain, response ~ .)
+lm1 = lm(data= XTrain_train, response ~ .)
 r = predict(lm1, newdata= Xtest)
 df = data.frame(SEQN = answer$SEQN, y = r)
-write.csv(df, "first_submission.csv")
+#write.csv(df, "first_submission.csv")
+mean((predict(lm1,new_data = XTrain_test)-XTrain_test$response)**2)
 ```
 `R squared = 0.418`
 Perform Ridge regression to shrink variables that don't affect the response as much. Find best lambda and use that for the most accuracy.
 ```{r}
 library(glmnet)
 set.seed(1)
-X = model.matrix(response ~ ., Xtrain)[, -1]
-y = Xtrain$response
+X = model.matrix(response ~ ., XTrain_train)[, -1]
+y = XTrain_train$response
 #train_idx <- sample(1:nrow(X), floor(nrow(X)/2), replace = FALSE)
 cv.out <- cv.glmnet(X, y, alpha = 0)
 plot(cv.out)
 bestlam <- cv.out$lambda.min
 ridge.mod <- glmnet(X, y, alpha = 0)
 ```
+
 ```{r}
 df = data.frame(SEQN = answer$SEQN, y = predict(ridge.mod, s = bestlam, newx = as.matrix(Xtest)))
-write.csv(df, "ridge_submission.csv")
+#write.csv(df, "ridge_submission.csv")
+mean((predict(ridge.mod,s = bestlam, newx = as.matrix(XTrain_test[,-147]))-XTrain_test$response)**2)
 ```
+
 `R squared = 0.419`
 Perform subset selection
-```{r}
-library(SignifReg)
-nullmodel <- lm(response ~ 1, data = Xtrain)
-fullmodel <- lm(response ~ ., data = Xtrain)
-select.p.fwd <- SignifReg(fit = nullmodel, 
-                          scope = list(lower = formula(nullmodel), upper = formula(fullmodel)), 
-                          alpha = 0.05, direction = "forward",
-                          adjust.method = "none", trace = FALSE)
-summary(select.p.fwd)
-```
+
 Use AIC for smallest model
 
 ```{r}
 select.p.fwd = lm(formula = response ~ BMXHT + BMXWT + RIAGENDR + DR1TSUGR + 
     DMDBORN4 + SMAQUEX2 + BPACSZ + DMDHRGND + DR1TTFAT + BMXARML + 
     DMDHHSIZ + BMXWAIST + BMXSAD1 + LBDTCSI + DR1TALCO + BPXPLS + 
-    BMXBMI + BMXLEG + BPXPTY + WTMEC2YR + DR1BWATZ, data = Xtrain)
+    BMXBMI + BMXLEG + BPXPTY + WTMEC2YR + DR1BWATZ, data = XTrain_train)
 df = data.frame(SEQN = answer$SEQN, y = predict(select.p.fwd, new = Xtest))
-write.csv(df, "first_submission.csv")
+#write.csv(df, "first_submission.csv")
+mean((predict(select.p.fwd,new_data = XTrain_test)-XTrain_test$response)**2)
 ```
+`R squared 0.425`
+
+
+
 ```{r}
-plot(ifelse(Xtrain$DR1BWATZ==0,Xtrain$DR1BWATZ,log(Xtrain$DR1BWATZ)),Xtrain$response)
+library(splines)
+temp_lm = lm(response ~ poly(BMXHT,3) + poly(BMXWT,2) + RIAGENDR + poly(DR1TSUGR,1):DMDBORN4 + DMDBORN4 + SMAQUEX2 + ns(BPACSZ,3) + DMDHRGND + poly(DR1TTFAT,2):DMDBORN4 + (BMXARML) + 
+    ns(DMDHHSIZ,5) +(BMXWAIST) + poly(BMXSAD1,3) + poly(LBDTCSI,3):SMAQUEX2 +  poly(BMXBMI,3) + poly(BMXLEG,2) + BPXPTY + log(WTMEC2YR) +ifelse(DR1TALCO>0,log(DR1TALCO),0) +ns(BPACSZ,3) , data = XTrain_train)
+    
+#df = data.frame(SEQN = answer$SEQN, y = predict(temp_lm, new = Xtest))
+#write.csv(df, "non_linear_and_interaction_submission.csv")
+mean((predict(temp_lm,new_data = XTrain_test)-XTrain_test$response)**2)
 ```
 
-`R squared 0.425`
-```{r}
-temp_lm = lm(, data = Xtrain)
-    
-summary(temp_lm)
-```
+`R-squared = 0.485`
 
 ```{r, warning=F}
+library(gam)
+gam_model = gam(response ~ s(BMXHT,3) + s(BMXWT,2) + RIAGENDR + s(DR1TSUGR,1):DMDBORN4 + DMDBORN4 + SMAQUEX2 + s(BPACSZ,3) + DMDHRGND + s(DR1TTFAT,2):DMDBORN4 + (BMXARML) + 
+    s(DMDHHSIZ,5) +(BMXWAIST) + (BMXSAD1)  +  s(BMXBMI,2) +  + BPXPTY + log(WTMEC2YR) +ifelse(DR1TALCO>0,log(DR1TALCO),0) , data = Xtrain)
+mean((predict(gam_model,new_data = XTrain_test)-XTrain_test$response)**2)
+df = data.frame(SEQN = answer$SEQN, y = predict(gam_model, new = Xtest))
+#write.csv(df, "spline_submission.csv")
+```
+```{r}
+library(rpart)
 library(splines)
-err = c()
-err2 = c()
-set.seed(1)
-for (i in 1:500){
-    subsetX = Xtrain[-i,]
-    
-    temp_lm = lm(response ~ poly(BMXHT,3) + poly(BMXWT,2) + RIAGENDR + poly(DR1TSUGR,1):DMDBORN4 + DMDBORN4 + SMAQUEX2 + ns(BPACSZ,3) + DMDHRGND + poly(DR1TTFAT,2):DMDBORN4 + (BMXARML) +  ns(DMDHHSIZ,5) +(BMXWAIST) + (BMXSAD1) + poly(LBDTCSI,3):SMAQUEX2 +  poly(BMXBMI,2) + poly(BMXLEG,2) + BPXPTY + log(WTMEC2YR) +ifelse(DR1TALCO>0,log(DR1TALCO),0), data = subsetX)
-    
-    select.p.fwdX = lm(formula = response ~ BMXHT + BMXWT + RIAGENDR + DR1TSUGR + 
+# grow tree
+fit <- rpart(response ~ .,
+   method="anova", data=Xtrain)
+pfit<- prune(fit, cp=0.011) # from cptable  
+plotcp(pfit)
+df = data.frame(SEQN = answer$SEQN, y = predict(pfit, new = Xtest))
+#write.csv(df, "spline_submission.csv")
+```
+```{r}
+library(e1071)
+library(caret)
+svm_model =svm(response ~ ., data = XTrain_train)
+pred = predict(svm_model, XTrain_test)
+```
+```{r}
+svm_fwd = svm(response  ~ BMXHT + BMXWT + RIAGENDR + DR1TSUGR + 
     DMDBORN4 + SMAQUEX2 + BPACSZ + DMDHRGND + DR1TTFAT + BMXARML + 
     DMDHHSIZ + BMXWAIST + BMXSAD1 + LBDTCSI + DR1TALCO + BPXPLS + 
-    BMXBMI + BMXLEG + BPXPTY + WTMEC2YR + DR1BWATZ, data = subsetX)
-    
-    pred_temp  = predict(temp_lm, newdata = Xtrain[i,])
-    err2 = c(err, (predict(select.p.fwdX, newdata = Xtrain[i,])-Xtrain$response[i])**2)
-    err = c(err, (pred_temp-Xtrain$response[i])**2)
-}
-mean(err)
-mean(err2)
-
-
-
+    BMXBMI + BMXLEG + BPXPTY + WTMEC2YR + DR1BWATZ, data = XTrain_train)
+```
+```{r}
+svm_spl = svm(response ~ poly(BMXHT,3) + poly(BMXWT,2) + RIAGENDR + poly(DR1TSUGR,1):DMDBORN4 + DMDBORN4 + SMAQUEX2 + ns(BPACSZ,3) + DMDHRGND + poly(DR1TTFAT,2):DMDBORN4 + (BMXARML) + 
+    ns(DMDHHSIZ,5) +(BMXWAIST) + poly(BMXSAD1,3) + poly(LBDTCSI,3):SMAQUEX2 +  poly(BMXBMI,3) + poly(BMXLEG,2) + BPXPTY + log(WTMEC2YR) +ifelse(DR1TALCO>0,log(DR1TALCO),0) +ns(BPACSZ,3), data = XTrain_train)
+pred3 = predict(svm_spl, XTrain_test)
+mean((pred2 - XTrain_test$response)**2)
+mean((pred - XTrain_test$response)**2)
+mean((pred3 - XTrain_test$response)**2)
+```
+```{r}
+svm2 = svm(response ~ BMXHT + BMXWT + RIAGENDR + DR1TSUGR + 
+    DMDBORN4 + SMAQUEX2 + BPACSZ + DMDHRGND + DR1TTFAT + BMXARML + 
+    DMDHHSIZ + BMXWAIST + BMXSAD1 + LBDTCSI + DR1TALCO + BPXPLS + 
+    BMXBMI + BMXLEG + BPXPTY + WTMEC2YR + DR1BWATZ, data = Xtrain)
+df = data.frame(SEQN = answer$SEQN, y = predict(svm2, new = Xtest))
+write.csv(df, "SVM_submission.csv")
 ```
 
-```{r}  
-```
+
+
+
+
 
 
