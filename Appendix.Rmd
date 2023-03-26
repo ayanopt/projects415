@@ -1,0 +1,100 @@
+---
+title: "Appendix"
+author: "Group 19"
+output: pdf_document
+---
+
+# Set up
+
+```{r}
+#Read in data using the years 2017-2018 
+#For reading in the data
+library(haven)
+#For cross validation
+library(boot)
+#For filtering out unnecessary data
+library(dplyr)
+#For best subsets
+library(leaps)
+demographics = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DEMO.XPT")
+bodyMeasures = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_BMX.XPT")
+dietary = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DR1IFF.XPT")
+oralHealth = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_OHXREF.XPT")
+
+# Given how long someone has been in the US, determine how much someone weighs?
+# Data used for the question:
+# How long someone has been in US - demographic data  - DMDYRUSZ
+# How much someone weighs - Examination Data - Body Measure - BMXWT
+# 
+# What contributes to tooth decay? 
+# Data used for the question: 
+# Oral Health - Recommendation of Care
+# Dietary Interview - Individual Foods
+```
+
+# Methods
+
+## Shrinkage/Selection
+
+```{r}
+
+```
+
+## 5-Fold Cross Validation
+
+```{r}
+#Select the necessary variables
+cvData = subset(demographics, select = c("SEQN", "DMDYRUSZ"))
+temp = subset(bodyMeasures, select = c("SEQN", "BMXWT"))
+cvData = merge(cvData, temp, by = "SEQN")
+cvData[["SEQN"]] = NULL
+cvData = na.omit(cvData)
+#Remove "Refused" and "Don't Know" data points
+cvData = filter(cvData, DMDYRUSZ != 99)
+cvData = filter(cvData, DMDYRUSZ != 77)
+
+#Cross Validation for the unmodified model
+model = glm(BMXWT ~ DMDYRUSZ, data = cvData)
+cvError = cv.glm(cvData, model, K = 5)$delta[1]
+#For the log model
+logModel = glm(log(BMXWT) ~ DMDYRUSZ, data = cvData)
+cvError = cv.glm(cvData, logModel, K = 5)$delta[1]
+#For the exponential model
+expModel = glm((BMXWT^2) ~ DMDYRUSZ, data = cvData)
+cvError = cv.glm(cvData, logModel, K = 5)$delta[1]
+#Add in additional models and compare all erros also change labels for cvError above
+```
+
+## Best Subsets
+
+```{r}
+
+#Select the necessary variables
+bestSubData = subset(oralHealth, select = c("SEQN", "OHAROCDT"))
+bestSubData = merge(bestSubData, dietary, by = "SEQN")
+bestSubData[["SEQN"]] = NULL
+bestSubData = na.omit(bestSubData)
+#Remove "Refused" and "Don't Know" data points
+bestSubData = filter(bestSubData, DR1_040Z != 9)
+bestSubData = filter(bestSubData, DR1_040Z != 7)
+bestSubData = filter(bestSubData, DR1FS != 99)
+bestSubData = filter(bestSubData, DR1_030Z != 99)
+bestSubData = filter(bestSubData, DR1DRSTZ != 5)
+
+#Fit the model with regsubsets()
+bestSubsets = regsubsets(OHAROCDT ~ ., data = bestSubData, really.big = T)
+#See the variables chosen, 6 is for total # of variables will have to check for optimal
+coef(bestSubsets, 6)
+
+#Possibly switch to lasso due to time (code from homework)
+lasso = glmnet(X[-testPoints, ], y[-testPoints], alpha = 1, lambda = grid)
+lassoCV = cv.glmnet(X[-testPoints, ], y[-testPoints], alpha = 1)
+optimalLambda = lassoCV$lambda.min
+
+trainPredictLasso = predict(lasso, s = optimalLambda, newx = X[-testPoints, ])
+trainErrorLasso = mean((trainPredictLasso - y[-testPoints])^2)
+testPredictLasso = predict(lasso, s = optimalLambda, newx = X[testPoints, ])
+testErrorLasso = mean((testPredictLasso - y[testPoints])^2)
+trainErrorLasso
+testErrorLasso
+```
