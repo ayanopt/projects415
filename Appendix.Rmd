@@ -16,6 +16,12 @@ library(boot)
 library(dplyr)
 #For best subsets
 library(leaps)
+#For tables
+library(knitr)
+#For random forests
+library(randomForest)
+#Reading in the dietary file takes a bit due to its size 
+#(also could be the network speed/connection)
 demographics = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DEMO.XPT")
 bodyMeasures = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_BMX.XPT")
 dietary = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DR1IFF.XPT")
@@ -53,48 +59,80 @@ cvData = na.omit(cvData)
 cvData = filter(cvData, DMDYRUSZ != 99)
 cvData = filter(cvData, DMDYRUSZ != 77)
 
-#Cross Validation for the unmodified model
-model = glm(BMXWT ~ DMDYRUSZ, data = cvData)
-cvError = cv.glm(cvData, model, K = 5)$delta[1]
+#Cross Validation for an unmodified model
+unModel = glm(BMXWT ~ DMDYRUSZ, data = cvData)
+unCVError = cv.glm(cvData, unModel, K = 5)$delta[1]
+
+#Cross Validation for a polynomial model
+degree = seq(1, 20, by = 1)
+cv = numeric(length(degree))
+for (d in seq_along(degree)) {
+  fit = glm(I(BMXWT^d) ~ DMDYRUSZ, data = cvData)
+  cvError = cv.glm(cvData, fit, K = 5)$delta[1]
+  cv[d]= cvError
+}
+#Degree of 1 is the min
+minPolyCV = min(cv)
+plot(degree, cv)
+
 #For the log model
 logModel = glm(log(BMXWT) ~ DMDYRUSZ, data = cvData)
-cvError = cv.glm(cvData, logModel, K = 5)$delta[1]
-#For the exponential model
-expModel = glm((BMXWT^2) ~ DMDYRUSZ, data = cvData)
-cvError = cv.glm(cvData, logModel, K = 5)$delta[1]
-#Add in additional models and compare all erros also change labels for cvError above
+logCVError = cv.glm(cvData, logModel, K = 5)$delta[1]
+
+#For the square root model
+sqrtModel = glm(sqrt(BMXWT) ~ DMDYRUSZ, data = cvData)
+sqrtCVError = cv.glm(cvData, sqrtModel, K = 5)$delta[1]
+
+#For the reciprocal model
+recModel = glm(I(1/BMXWT) ~ DMDYRUSZ, data = cvData)
+recCVError = cv.glm(cvData, recModel, K = 5)$delta[1]
+
+cvErrors = c(unCVError, minPolyCV, logCVError, sqrtCVError, recCVError)
+cvErrorTable = matrix(cvErrors, nrow = 1, ncol = 5)
+rownames(cvErrorTable) = "Error Rate"
+colnames(cvErrorTable) = c("Unmodified", "Degree 1 Polynomial", "Logged", 
+                           "Square Root", "Reciprocal")
+kable(cvErrorTable, caption = "Cross Validation Error Rates For Different Models")
 ```
 
-## Best Subsets
+## Random Forests
 
 ```{r}
-
 #Select the necessary variables
-bestSubData = subset(oralHealth, select = c("SEQN", "OHAROCDT"))
-bestSubData = merge(bestSubData, dietary, by = "SEQN")
-bestSubData[["SEQN"]] = NULL
-bestSubData = na.omit(bestSubData)
+forestData = subset(oralHealth, select = c("SEQN", "OHAROCDT"))
+forestData = merge(forestData, dietary, by = "SEQN")
+forestData[["SEQN"]] = NULL
+forestData = na.omit(forestData)
 #Remove "Refused" and "Don't Know" data points
-bestSubData = filter(bestSubData, DR1_040Z != 9)
-bestSubData = filter(bestSubData, DR1_040Z != 7)
-bestSubData = filter(bestSubData, DR1FS != 99)
-bestSubData = filter(bestSubData, DR1_030Z != 99)
-bestSubData = filter(bestSubData, DR1DRSTZ != 5)
+forestData = filter(forestData, DR1_040Z != 9)
+forestData = filter(forestData, DR1_040Z != 7)
+forestData = filter(forestData, DR1FS != 99)
+forestData = filter(forestData, DR1_030Z != 99)
+forestData = filter(forestData, DR1DRSTZ != 5)
+forestData$OHAROCDT = as.factor(forestData$OHAROCDT)
 
-#Fit the model with regsubsets()
-bestSubsets = regsubsets(OHAROCDT ~ ., data = bestSubData, really.big = T)
-#See the variables chosen, 6 is for total # of variables will have to check for optimal
-coef(bestSubsets, 6)
+rows = nrow(forestData)
+cols = ncol(forestData)
+sample = sample(seq(rows), size = floor(0.7 * rows))
+trainSet = forestData[sample,]
+testSet = forestData[-sample,]
 
-#Possibly switch to lasso due to time (code from homework)
-lasso = glmnet(X[-testPoints, ], y[-testPoints], alpha = 1, lambda = grid)
-lassoCV = cv.glmnet(X[-testPoints, ], y[-testPoints], alpha = 1)
-optimalLambda = lassoCV$lambda.min
+#Bagging (this will take few minutes)
+bag = randomForest(
+  OHAROCDT ~ . ,        # Model formula
+  data = trainSet,    # Training data
+  mtry = cols - 1, # Use all columns
+  importance = TRUE)      # Return feature importance measures
+bag
+summary(bag)
+plot(bag)
+importance(bag)
+varImpPlot(bag)
 
-trainPredictLasso = predict(lasso, s = optimalLambda, newx = X[-testPoints, ])
-trainErrorLasso = mean((trainPredictLasso - y[-testPoints])^2)
-testPredictLasso = predict(lasso, s = optimalLambda, newx = X[testPoints, ])
-testErrorLasso = mean((testPredictLasso - y[testPoints])^2)
-trainErrorLasso
-testErrorLasso
+predBag = predict(bag, testSet, type = "class") 
+table(predBag, testSet$OHAROCDT)
+#Percentage of correct predictions
+(11008+37)/(11008+19+37)
+
+#Prune
 ```
