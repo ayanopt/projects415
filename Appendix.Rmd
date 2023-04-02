@@ -95,7 +95,7 @@ colnames(cvErrorTable) = c("Unmodified", "Degree 1 Polynomial", "Logged",
 kable(cvErrorTable, caption = "Cross Validation Error Rates For Different Models")
 ```
 
-## Random Forests
+## Bagging
 
 ```{r}
 #Select the necessary variables
@@ -118,21 +118,16 @@ trainSet = forestData[sample,]
 testSet = forestData[-sample,]
 
 #Bagging (this will take few minutes)
-bag = randomForest(
-  OHAROCDT ~ . ,        # Model formula
-  data = trainSet,    # Training data
-  mtry = cols - 1, # Use all columns
-  importance = TRUE)      # Return feature importance measures
-bag
-summary(bag)
-plot(bag)
-importance(bag)
-varImpPlot(bag)
+bagModel = randomForest(OHAROCDT ~ ., data = trainSet, mtry = cols - 1, 
+                   importance = TRUE)
+bagModel
+summary(bagModel)
+plot(bagModel)
+importance(bagModel)
+varImpPlot(bagModel)
 
-predBag = predict(bag, testSet, type = "class") 
+predBag = predict(bagModel, testSet, type = "class") 
 table(predBag, testSet$OHAROCDT)
 #Percentage of correct predictions
 (11008+37)/(11008+19+37)
-
-#Prune
 ```
