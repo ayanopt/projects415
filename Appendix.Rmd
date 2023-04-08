@@ -20,8 +20,9 @@ library(leaps)
 library(knitr)
 #For random forests
 library(randomForest)
+#For a classification tree
+library(tree)
 #Reading in the dietary file takes a bit due to its size 
-#(also could be the network speed/connection)
 demographics = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DEMO.XPT")
 bodyMeasures = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_BMX.XPT")
 dietary = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DR1IFF.XPT")
@@ -50,7 +51,7 @@ oralHealth = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_OHXREF.XPT")
 
 ```{r}
 #Select the necessary variables
-cvData = subset(demographics, select = c("SEQN", "DMDYRUSZ"))
+cvData = subset(demographics, select = c("SEQN", "DMDYRUSZ", "RIDAGEYR"))
 temp = subset(bodyMeasures, select = c("SEQN", "BMXWT"))
 cvData = merge(cvData, temp, by = "SEQN")
 cvData[["SEQN"]] = NULL
@@ -58,6 +59,7 @@ cvData = na.omit(cvData)
 #Remove "Refused" and "Don't Know" data points
 cvData = filter(cvData, DMDYRUSZ != 99)
 cvData = filter(cvData, DMDYRUSZ != 77)
+set.seed(415)
 
 #Cross Validation for an unmodified model
 unModel = glm(BMXWT ~ DMDYRUSZ, data = cvData)
@@ -73,7 +75,6 @@ for (d in seq_along(degree)) {
 }
 #Degree of 1 is the min
 minPolyCV = min(cv)
-plot(degree, cv)
 
 #For the log model
 logModel = glm(log(BMXWT) ~ DMDYRUSZ, data = cvData)
@@ -87,12 +88,32 @@ sqrtCVError = cv.glm(cvData, sqrtModel, K = 5)$delta[1]
 recModel = glm(I(1/BMXWT) ~ DMDYRUSZ, data = cvData)
 recCVError = cv.glm(cvData, recModel, K = 5)$delta[1]
 
+#Put the cv errors into a table
 cvErrors = c(unCVError, minPolyCV, logCVError, sqrtCVError, recCVError)
 cvErrorTable = matrix(cvErrors, nrow = 1, ncol = 5)
 rownames(cvErrorTable) = "Error Rate"
 colnames(cvErrorTable) = c("Unmodified", "Degree 1 Polynomial", "Logged", 
                            "Square Root", "Reciprocal")
 kable(cvErrorTable, caption = "Cross Validation Error Rates For Different Models")
+
+#The reciprocal models yields the lowest cross validation error, so it is the
+#best model found to represent how much someone weighs given how long they have
+#been living in the United States
+
+boxplot(I(1/BMXWT) ~ DMDYRUSZ, data = cvData)
+#Predict new observations using the model
+#Spent 5 years or less in the U.S.
+newData = data.frame(DMDYRUSZ = c(1))
+predict.lm(ageModel, newData, interval="confidence")
+#Spent 5-15 years in the U.S.
+newData = data.frame(DMDYRUSZ = c(2))
+predict.lm(ageModel, newData, interval="confidence")
+#Spent 15-30 years in the U.S.
+newData = data.frame(DMDYRUSZ = c(3))
+predict.lm(ageModel, newData, interval="confidence")
+#Spent 30 years or more in the U.S.
+newData = data.frame(DMDYRUSZ = c(4))
+predict.lm(ageModel, newData, interval="confidence")
 ```
 
 ## Bagging
@@ -102,6 +123,7 @@ kable(cvErrorTable, caption = "Cross Validation Error Rates For Different Models
 forestData = subset(oralHealth, select = c("SEQN", "OHAROCDT"))
 forestData = merge(forestData, dietary, by = "SEQN")
 forestData[["SEQN"]] = NULL
+forestData[["DR1EXMER"]] = NULL
 forestData = na.omit(forestData)
 #Remove "Refused" and "Don't Know" data points
 forestData = filter(forestData, DR1_040Z != 9)
@@ -110,6 +132,7 @@ forestData = filter(forestData, DR1FS != 99)
 forestData = filter(forestData, DR1_030Z != 99)
 forestData = filter(forestData, DR1DRSTZ != 5)
 forestData$OHAROCDT = as.factor(forestData$OHAROCDT)
+set.seed(415)
 
 rows = nrow(forestData)
 cols = ncol(forestData)
@@ -119,15 +142,47 @@ testSet = forestData[-sample,]
 
 #Bagging (this will take few minutes)
 bagModel = randomForest(OHAROCDT ~ ., data = trainSet, mtry = cols - 1, 
-                   importance = TRUE)
-bagModel
-summary(bagModel)
+                        importance = TRUE)
 plot(bagModel)
-importance(bagModel)
-varImpPlot(bagModel)
+varImpPlot(bagModel, main = "Variable Importance Plot")
 
 predBag = predict(bagModel, testSet, type = "class") 
 table(predBag, testSet$OHAROCDT)
 #Percentage of correct predictions
-(11008+37)/(11008+19+37)
+correct = table(predBag, testSet$OHAROCDT)[1] + table(predBag, testSet$OHAROCDT)[4]
+total = sum(table(predBag, testSet$OHAROCDT)[1:4])
+percCorrect = correct / total 
+percCorrect
+
+#Take top important variables and make a model of it then test it with
+#Using mean decrease accuracy as the metric, take top 10
+importance = sort(importance(bagModel)[,3], decreasing = TRUE)
+importance[1:10]
+impModel = tree(OHAROCDT ~ DR1DBIH + DR1DAY + WTDR2DPP + WTDRD1PP + DR1IGRMS +
+                 DR1_020 + DR1FS + DR1_030Z + DR1IPOTA + DR1IFA, data = trainSet)
+#Evaluate the new model
+predImp = predict(impModel, testSet, type = "class")
+table(predImp, testSet$OHAROCDT)
+correct = table(predImp, testSet$OHAROCDT)[1] + table(predImp, testSet$OHAROCDT)[4]
+total = sum(table(predImp, testSet$OHAROCDT)[1:4])
+percCorrect = correct / total 
+percCorrect
+
+#Variable definition table for the paper
+definitions = c("Number of days between intake day and the day of family questionnaire administered in the household", 
+                "Intake day of the week", 
+                "Dietary two-day sample weight", 
+                "Dietary day one sample weight", 
+                "Gram weight of the food/individual component", 
+                "Time of eating occasion (HH:MM)",
+                "Source of food",
+                "Name of eating occasion",
+                "Potassium (mg)",
+                "Folic acid (mcg)")
+definitionsTable = matrix(definitions, nrow = 10, ncol = 1)
+rownames(definitionsTable) = c("DR1DBIH", "DR1DAY", "WTDR2DPP", "WTDRD1PP", 
+                               "DR1IGRMS", "DR1_020", "DR1FS", "DR1_030Z",
+                               "DR1IPOTA", "DR1IFA")
+colnames(definitionsTable) = "Definition"
+kable(definitionsTable)
 ```
