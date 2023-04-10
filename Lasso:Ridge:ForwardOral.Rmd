@@ -1,0 +1,85 @@
+---
+title: "Project"
+author: "Anthony Yun avyun@umich.edu"
+date: "2023-04-08"
+output: pdf_document
+---
+
+I still need to make error values
+
+```{r}
+library(haven)
+library(tidyverse)
+library(glmnet)
+body <- read_xpt('P_BMX.XPT')
+exam <- read_xpt('P_DEMO.XPT')
+
+dietary <- read_xpt('P_DR1IFF.XPT')
+oralHealth <- read_xpt('P_OHXREF.XPT')
+```
+
+```{r}
+oralHealthSub = subset(oralHealth, select = c("SEQN", "OHAROCDT"))
+oralAndFood = merge(oralHealthSub, dietary, by = "SEQN")
+oralAndFood[["SEQN"]] = NULL
+oralAndFood = na.omit(oralAndFood)
+
+#Remove "Refused" and "Don't Know" data points
+oralAndFood = filter(oralAndFood, DR1_040Z != 9)
+oralAndFood = filter(oralAndFood, DR1_040Z != 7)
+oralAndFood = filter(oralAndFood, DR1FS != 99)
+oralAndFood = filter(oralAndFood, DR1_030Z != 99)
+oralAndFood = filter(oralAndFood, DR1DRSTZ != 5)
+```
+
+
+```{r}
+## SETUP FOR RIDGE AND LASSO
+set.seed(1)
+X = model.matrix(OHAROCDT ~ ., data = oralAndFood)[, -1]
+decay = oralAndFood$OHAROCDT
+train_idx <- sample(1:nrow(X), floor(nrow(X)/4), replace = FALSE)
+grid <- 10^seq(10, -2, length = 100)
+```
+
+```{r}
+## RIDGE (still have to work on this?)
+set.seed(1)
+cv.out <- cv.glmnet(X[train_idx,], decay[train_idx], alpha = 0)
+bestlam <- cv.out$lambda.min
+bestlam
+ridge.mod <- glmnet(X, decay, alpha = 0, lambda = grid)
+ridge.pred <- predict(ridge.mod, s = bestlam, newx = X[-train_idx,])
+out <- glmnet(X, decay, alpha = 0)
+predict(out, type = "coefficients", s = bestlam)[1:84,]
+```
+
+```{r}
+## LASSO
+set.seed(1)
+cv.out <- cv.glmnet(X[train_idx,], decay[train_idx], alpha = 0)
+bestlam <- cv.out$lambda.min
+bestlam
+lasso.mod <- glmnet(X[train_idx,], decay[train_idx], alpha = 1)
+lasso.pred <- predict(lasso.mod, s = bestlam, newx = X[-train_idx,])
+out <- glmnet(X, decay, alpha = 1)
+predict(out, type = "coefficients", s = .001)[1:84,]
+```
+Important variables (not zero coeficent): DR1DBIH, DR1DAY, DR1CCMNM, DR1FS, DR1IPFAT, DR1ISODI
+
+```{r}
+# Forward step
+library(SignifReg)
+library(leaps)
+
+nullmodel <- lm(OHAROCDT ~ 1, data = oralAndFood)
+fullmodel <- lm(OHAROCDT ~ ., data = oralAndFood)
+
+## This will take a a few minutes
+select.p.fwd <- SignifReg(fit = nullmodel, scope = list(lower = formula(nullmodel), upper = formula(fullmodel)),alpha = 0.05, direction = "forward", adjust.method = "none", trace = FALSE)
+summary(select.p.fwd)
+```
+
+Important variables: DR1DAY, DR1FS, DR1FS, DR1DBIH, DR1ISODI, DR1CCMNM, DR1ITHEO, DR1IFDCD, DR1IFIBE DR1IPFAT, DR1ICALC, DR1IS180
+
+Common variables with Lasso:  DR1DBIH, DR1DAY, DR1CCMNM, DR1FS, DR1IPFAT, DR1ISODI (all of the lasso ones)
