@@ -5,6 +5,7 @@ date: "2023-04-08"
 output: pdf_document
 ---
 
+## SETUP
 I still need to make error values
 
 ```{r}
@@ -38,12 +39,20 @@ oralAndFood = filter(oralAndFood, DR1DRSTZ != 5)
 set.seed(1)
 X = model.matrix(OHAROCDT ~ ., data = oralAndFood)[, -1]
 decay = oralAndFood$OHAROCDT
-train_idx <- sample(1:nrow(X), floor(nrow(X)/4), replace = FALSE)
 grid <- 10^seq(10, -2, length = 100)
+ridge.mod <- glmnet(X, decay, alpha = 0, lambda = grid)
+train_idx <- sample(1:nrow(X), floor(.7*nrow(X)), replace = FALSE)
+
+trainingSet <- oralAndFood[train_idx,]
+testingSet <- oralAndFood[-train_idx,]
 ```
 
+\break 
+
+## RIDGE
+
 ```{r}
-## RIDGE (still have to work on this?)
+## RIDGE 
 set.seed(1)
 cv.out <- cv.glmnet(X[train_idx,], decay[train_idx], alpha = 0)
 bestlam <- cv.out$lambda.min
@@ -53,6 +62,19 @@ ridge.pred <- predict(ridge.mod, s = bestlam, newx = X[-train_idx,])
 out <- glmnet(X, decay, alpha = 0)
 predict(out, type = "coefficients", s = bestlam)[1:84,]
 ```
+
+```{r}
+## Still need to figure out how to make the True/False table for the ridge regression instead
+ridge.pred.train = predict(ridge.mod, newx = X[train_idx, ])
+ridge_train_error = mean((ridge.pred.train - decay[train_idx])^2)
+ridge_train_error
+
+ridge.pred.test = predict(ridge.mod, newx = X[-train_idx, ])
+ridge_test_error = mean((ridge.pred.test - decay[-train_idx])^2)
+ridge_test_error
+```
+
+## LASSO
 
 ```{r}
 ## LASSO
@@ -65,7 +87,40 @@ lasso.pred <- predict(lasso.mod, s = bestlam, newx = X[-train_idx,])
 out <- glmnet(X, decay, alpha = 1)
 predict(out, type = "coefficients", s = .001)[1:84,]
 ```
+
 Important variables (not zero coeficent): DR1DBIH, DR1DAY, DR1CCMNM, DR1FS, DR1IPFAT, DR1ISODI
+
+
+```{r}
+#lasso.pred.train = predict(lasso.mod, newx = X[train_idx, ])
+#lasso_train_error = mean((lasso.pred.train - decay[train_idx])^2)
+#lasso_train_error
+#lasso.pred.test = predict(lasso.mod, newx = X[-train_idx, ])
+#lasso_test_error = mean((lasso.pred.test - decay[-train_idx])^2)
+#lasso_test_error
+```
+
+```{r}
+## Using chosen lasso model predictors
+
+modLasso <- lm(OHAROCDT~DR1DBIH+ DR1DAY+ DR1CCMNM+ DR1FS+ DR1IPFAT+ DR1ISODI, data = trainingSet)
+
+train_pred_lasso <- predict(modLasso, newdata = trainingSet)
+test_pred_lasso <- predict(modLasso, newdata = testingSet)
+
+train_tab_lasso <- table(trainingSet$OHAROCDT, train_pred_lasso > 0.5)
+test_tab_lasso <- table(testingSet$OHAROCDT, test_pred_lasso > 0.5)
+
+train_tab_lasso
+test_tab_lasso
+table(trainingSet$OHAROCDT)
+table(testingSet$OHAROCDT)
+```
+Perfect accuracy 
+
+\break
+
+## Forward STEP 
 
 ```{r}
 # Forward step
@@ -83,3 +138,30 @@ summary(select.p.fwd)
 Important variables: DR1DAY, DR1FS, DR1FS, DR1DBIH, DR1ISODI, DR1CCMNM, DR1ITHEO, DR1IFDCD, DR1IFIBE DR1IPFAT, DR1ICALC, DR1IS180
 
 Common variables with Lasso:  DR1DBIH, DR1DAY, DR1CCMNM, DR1FS, DR1IPFAT, DR1ISODI (all of the lasso ones)
+
+
+```{r}
+#using that model
+
+modFwd <- lm(OHAROCDT ~ DR1DAY + DR1FS + DR1FS + DR1DBIH + DR1ISODI + DR1CCMNM + DR1ITHEO + DR1IFDCD + DR1IFIBE + DR1IPFAT+ DR1ICALC + DR1IS180, data = trainingSet)
+
+train_pred_fwd <- predict(modFwd, newdata = trainingSet)
+test_pred_fwd <- predict(modFwd, newdata = testingSet)
+
+train_tab <- table(trainingSet$OHAROCDT, train_pred_fwd > 0.9)
+test_tab <- table(testingSet$OHAROCDT, test_pred_fwd > 0.9)
+
+train_tab
+test_tab
+table(trainingSet$OHAROCDT)
+table(testingSet$OHAROCDT)
+```
+
+We see perfect training and testing accuracy from confusion table.
+
+```{r}
+#train_error <- mean((trainingSet$OHAROCDT - train_pred_fwd)^2)
+#test_error <- mean((testingSet$OHAROCDT - test_pred_fwd)^2)
+#train_error
+#test_error
+```
