@@ -6,7 +6,6 @@ output: pdf_document
 ---
 
 ## SETUP
-I still need to make error values
 
 ```{r}
 library(haven)
@@ -92,31 +91,28 @@ Important variables (not zero coeficent): DR1DBIH, DR1DAY, DR1CCMNM, DR1FS, DR1I
 
 
 ```{r}
-#lasso.pred.train = predict(lasso.mod, newx = X[train_idx, ])
-#lasso_train_error = mean((lasso.pred.train - decay[train_idx])^2)
-#lasso_train_error
-#lasso.pred.test = predict(lasso.mod, newx = X[-train_idx, ])
-#lasso_test_error = mean((lasso.pred.test - decay[-train_idx])^2)
-#lasso_test_error
+lasso.pred.train = predict(lasso.mod, newx = X[train_idx, ])
+lasso_train_error = mean((lasso.pred.train - decay[train_idx])^2)
+lasso_train_error
+lasso.pred.test = predict(lasso.mod, newx = X[-train_idx, ])
+lasso_test_error = mean((lasso.pred.test - decay[-train_idx])^2)
+lasso_test_error
 ```
 
 ```{r}
 ## Using chosen lasso model predictors
 
-modLasso <- lm(OHAROCDT~DR1DBIH+ DR1DAY+ DR1CCMNM+ DR1FS+ DR1IPFAT+ DR1ISODI, data = trainingSet)
+#modLasso <- lm(OHAROCDT~DR1DBIH+ DR1DAY+ DR1CCMNM+ DR1FS+ DR1IPFAT+ DR1ISODI, data = trainingSet)
 
-train_pred_lasso <- predict(modLasso, newdata = trainingSet)
-test_pred_lasso <- predict(modLasso, newdata = testingSet)
-
-train_tab_lasso <- table(trainingSet$OHAROCDT, train_pred_lasso > 0.5)
-test_tab_lasso <- table(testingSet$OHAROCDT, test_pred_lasso > 0.5)
-
-train_tab_lasso
-test_tab_lasso
-table(trainingSet$OHAROCDT)
-table(testingSet$OHAROCDT)
+#train_pred_lasso <- predict(modLasso, newdata = trainingSet)
+#test_pred_lasso <- predict(modLasso, newdata = testingSet)
+#train_tab_lasso <- table(trainingSet$OHAROCDT, train_pred_lasso > 0.5)
+#test_tab_lasso <- table(testingSet$OHAROCDT, test_pred_lasso > 0.5)
+#train_tab_lasso
+#test_tab_lasso
+#table(trainingSet$OHAROCDT)
+#table(testingSet$OHAROCDT)
 ```
-Perfect accuracy 
 
 \break
 
@@ -148,20 +144,15 @@ modFwd <- lm(OHAROCDT ~ DR1DAY + DR1FS + DR1FS + DR1DBIH + DR1ISODI + DR1CCMNM +
 train_pred_fwd <- predict(modFwd, newdata = trainingSet)
 test_pred_fwd <- predict(modFwd, newdata = testingSet)
 
-train_tab <- table(trainingSet$OHAROCDT, train_pred_fwd > 0.9)
-test_tab <- table(testingSet$OHAROCDT, test_pred_fwd > 0.9)
+#train_tab <- table(trainingSet$OHAROCDT, train_pred_fwd > 0.5)
+#test_tab <- table(testingSet$OHAROCDT, test_pred_fwd > 0.5)
+#train_tab
+#test_tab
+#table(trainingSet$OHAROCDT)
+#table(testingSet$OHAROCDT)
 
-train_tab
-test_tab
-table(trainingSet$OHAROCDT)
-table(testingSet$OHAROCDT)
-```
-
-We see perfect training and testing accuracy from confusion table.
-
-```{r}
-#train_error <- mean((trainingSet$OHAROCDT - train_pred_fwd)^2)
-#test_error <- mean((testingSet$OHAROCDT - test_pred_fwd)^2)
-#train_error
-#test_error
+train_error <- mean((trainingSet$OHAROCDT - train_pred_fwd)^2)
+test_error <- mean((testingSet$OHAROCDT - test_pred_fwd)^2)
+train_error
+test_error
 ```
