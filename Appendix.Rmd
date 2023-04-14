@@ -22,6 +22,7 @@ library(knitr)
 library(randomForest)
 #For a classification tree
 library(tree)
+library(ggplot2)
 #Reading in the dietary file takes a bit due to its size 
 demographics = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DEMO.XPT")
 bodyMeasures = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_BMX.XPT")
@@ -50,70 +51,110 @@ oralHealth = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_OHXREF.XPT")
 ## 5-Fold Cross Validation
 
 ```{r}
-#Select the necessary variables
-cvData = subset(demographics, select = c("SEQN", "DMDYRUSZ", "RIDAGEYR"))
-temp = subset(bodyMeasures, select = c("SEQN", "BMXWT"))
-cvData = merge(cvData, temp, by = "SEQN")
+#Combine the data sets into one
+cvData = merge(demographics, bodyMeasures, by = "SEQN")
+#Remove interview-based and weight variables
 cvData[["SEQN"]] = NULL
-cvData = na.omit(cvData)
+cvData[["SDDSRVYR"]] = NULL
+cvData[["RIDSTATR"]] = NULL
+cvData[["WTINTPRP"]] = NULL
+cvData[["WTMECPRP"]] = NULL
+cvData[["BMIWT"]] = NULL
+cvData[["BMXBMI"]] = NULL
+cvData[["BMDBMIC"]] = NULL
+cvData[["FIAPROXY"]] = NULL
+cvData[["MIAPROXY"]] = NULL
+cvData[["MIAINTRP"]] = NULL
+cvData[["SIAPROXY"]] = NULL
+cvData[["SDMVPSU"]] = NULL
+cvData[["SDMVSTRA"]] = NULL
+#Select participants in which a full body measure exam was conducted
+cvData = subset(cvData, cvData$BMDSTATS == 1)
+cvData[["BMDSTATS"]] = NULL
 #Remove "Refused" and "Don't Know" data points
 cvData = filter(cvData, DMDYRUSZ != 99)
 cvData = filter(cvData, DMDYRUSZ != 77)
+cvData = filter(cvData, DMDYRUSZ != 77)
+#Remove variables which most if not all observations are NA to avoid excluding
+#most or all of the data
+cvData[["RIDAGEMN"]] = NULL
+cvData[["RIDEXPRG"]] = NULL
+cvData[["BMXRECUM"]] = NULL
+cvData[["BMIRECUM"]] = NULL
+cvData[["BMXHEAD"]] = NULL
+cvData[["BMIHEAD"]] = NULL
+cvData[["BMIHT"]] = NULL
+cvData[["BMILEG"]] = NULL
+cvData[["BMIARML"]] = NULL
+cvData[["BMIARMC"]] = NULL
+cvData[["BMIWAIST"]] = NULL
+cvData[["BMIHIP"]] = NULL
+cvData = na.omit(cvData)
 set.seed(415)
 
-#Cross Validation for an unmodified model
-unModel = glm(BMXWT ~ DMDYRUSZ, data = cvData)
-unCVError = cv.glm(cvData, unModel, K = 5)$delta[1]
+#Forward Selection
+forwardSel = regsubsets(BMXWT ~ ., data = cvData, method = "forward")
+forwardSum = summary(forwardSel)
+#CP
+which.min(forwardSum$cp)
+coef(forwardSel, 9)
+#BIC
+which.min(forwardSum$bic)
+coef(forwardSel, 7)
 
-#Cross Validation for a polynomial model
-degree = seq(1, 20, by = 1)
-cv = numeric(length(degree))
-for (d in seq_along(degree)) {
-  fit = glm(I(BMXWT^d) ~ DMDYRUSZ, data = cvData)
-  cvError = cv.glm(cvData, fit, K = 5)$delta[1]
-  cv[d]= cvError
-}
-#Degree of 1 is the min
-minPolyCV = min(cv)
+#Backward Selection
+backwardSel = regsubsets(BMXWT ~ ., data = cvData, method = "backward")
+backwardSum = summary(backwardSel)
+#CP
+which.min(backwardSum$cp)
+coef(backwardSel, 9)
+#BIC
+which.min(backwardSum$bic)
+coef(backwardSel, 7)
 
-#For the log model
-logModel = glm(log(BMXWT) ~ DMDYRUSZ, data = cvData)
-logCVError = cv.glm(cvData, logModel, K = 5)$delta[1]
+#Best Subsets Selection
+bestSub = regsubsets(BMXWT ~ ., data = cvData)
+bestSubSum = summary(bestSub)
+#CP
+which.min(bestSubSum$cp)
+coef(bestSub, 9)
+#BIC
+which.min(bestSubSum$bic)
+coef(bestSub, 7)
 
-#For the square root model
-sqrtModel = glm(sqrt(BMXWT) ~ DMDYRUSZ, data = cvData)
-sqrtCVError = cv.glm(cvData, sqrtModel, K = 5)$delta[1]
+#All of the selection methods agree on the model for both the CP and BIC criteria
+#so we compare both models selected by CP and BIC.
+#The DMDBORN4 variable has a coefficient of 0 so we'll remove it
 
-#For the reciprocal model
-recModel = glm(I(1/BMXWT) ~ DMDYRUSZ, data = cvData)
-recCVError = cv.glm(cvData, recModel, K = 5)$delta[1]
+cpModel = glm(BMXWT ~ RIAGENDR + RIDAGEYR + DMDEDUC2 + AIALANGA + INDFMPIR + BMXLEG
+              + BMXWAIST + BMXHIP, data = cvData)
+bicModel = glm(BMXWT ~ RIAGENDR + RIDAGEYR + AIALANGA + BMXLEG + BMXWAIST + BMXHIP,
+               data = cvData)
+cpCV = cv.glm(cvData, cpModel, K = 5)$delta[1]
+bicCV = cv.glm(cvData, bicModel, K = 5)$delta[1]
 
-#Put the cv errors into a table
-cvErrors = c(unCVError, minPolyCV, logCVError, sqrtCVError, recCVError)
-cvErrorTable = matrix(cvErrors, nrow = 1, ncol = 5)
-rownames(cvErrorTable) = "Error Rate"
-colnames(cvErrorTable) = c("Unmodified", "Degree 1 Polynomial", "Logged", 
-                           "Square Root", "Reciprocal")
-kable(cvErrorTable, caption = "Cross Validation Error Rates For Different Models")
+#CV Error Table
+cvErrors = c(cpCV, bicCV)
+cvTable = matrix(cvErrors, nrow = 1, ncol = 2)
+rownames(cvTable) = "5-Fold CV Error"
+colnames(cvTable) = c("CP", "BIC")
+kable(cvTable)
 
-#The reciprocal models yields the lowest cross validation error, so it is the
-#best model found to represent how much someone weighs given how long they have
-#been living in the United States
+#The BIC model has a lower cross validation error so that is the preferred model
+kable(coef(bicModel), col.names = "Coefficient")
 
-boxplot(I(1/BMXWT) ~ DMDYRUSZ, data = cvData)
-#Predict new observations using the model
-#Spent 5 years or less in the U.S.
-newData = data.frame(DMDYRUSZ = c(1))
-predict.lm(ageModel, newData, interval="confidence")
-#Spent 5-15 years in the U.S.
-newData = data.frame(DMDYRUSZ = c(2))
-predict.lm(ageModel, newData, interval="confidence")
-#Spent 15-30 years in the U.S.
-newData = data.frame(DMDYRUSZ = c(3))
-predict.lm(ageModel, newData, interval="confidence")
-#Spent 30 years or more in the U.S.
-newData = data.frame(DMDYRUSZ = c(4))
-predict.lm(ageModel, newData, interval="confidence")
+#Variable definition table for the paper
+definitions = c("Gender of the particpant", 
+                "Age in years at screening", 
+                "Language of ACASI interview",
+                "Upper leg length (cm)",
+                "Waist circumference (cm)",
+                "Hip circumference (cm)")
+definitionsTable = matrix(definitions, nrow = 6, ncol = 1)
+rownames(definitionsTable) = c("RIAGENDR", "RIDAGEYR", "AIALANGA", "BMXLEG", 
+                               "BMXWAIST", "BMXHIP")
+colnames(definitionsTable) = c("Definition")
+kable(definitionsTable)
 ```
 
 ## Bagging
@@ -143,8 +184,7 @@ testSet = forestData[-sample,]
 #Bagging (this will take few minutes)
 bagModel = randomForest(OHAROCDT ~ ., data = trainSet, mtry = cols - 1, 
                         importance = TRUE)
-plot(bagModel)
-varImpPlot(bagModel, main = "Variable Importance Plot")
+varImpPlot(bagModel, n.var = 15, main = "Variable Importance Plot")
 
 predBag = predict(bagModel, testSet, type = "class") 
 table(predBag, testSet$OHAROCDT)
