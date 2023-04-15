@@ -23,44 +23,44 @@ library(randomForest)
 #For a classification tree
 library(tree)
 library(ggplot2)
+library(tidyverse)
+library(glmnet)
 #Reading in the dietary file takes a bit due to its size 
 demographics = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DEMO.XPT")
 bodyMeasures = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_BMX.XPT")
 dietary = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DR1IFF.XPT")
 oralHealth = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_OHXREF.XPT")
-
-# Given how long someone has been in the US, determine how much someone weighs?
-# Data used for the question:
-# How long someone has been in US - demographic data  - DMDYRUSZ
-# How much someone weighs - Examination Data - Body Measure - BMXWT
-# 
-# What contributes to tooth decay? 
-# Data used for the question: 
-# Oral Health - Recommendation of Care
-# Dietary Interview - Individual Foods
 ```
+
 # Exploratory Data Analysis
+
 ## Demographics
+
 ```{r}
 # Investiage the demographics dataset
 head(demographics)
 ```
+
 ```{r}
 # Find all of the columns with NA values in them
 counts = colSums(is.na(demographics))
 nulls = names(counts[counts > 1000])
 nulls
 ```
+
 ## Body Measurements
+
 ```{r}
 head(bodyMeasures)
 ```
+
 ```{r}
 # Find all columns with NA in them
 counts2 = colSums(is.na(bodyMeasures))
 nulls2 =  names(counts2[counts2 > 1000])
 nulls2
 ```
+
 ```{r}
 # Remove the null columns from bodyMeasures dataset
 bm_sub = bodyMeasures[,!(names(bodyMeasures) %in% nulls2)]
@@ -75,54 +75,181 @@ df_sub = merge(cv_sub, bm_sub, by="SEQN")
 init_fit = glm(BMXWT ~ .-SEQN, data = df_sub)
 summary(init_fit)
 ```
+
 ```{r}
 pairs(subset(df_sub, select = c("BMXWT", "RIAGENDR", "SIALANG", "SIAINTRP", "BMDSTATS", "BMXARML", "BMXARMC")))
 ```
+
 ```{r}
 df_sub = na.omit(df_sub)
 ggplot(data=df_sub, mapping=aes(x=RIAGENDR, y=BMXWT, group=RIAGENDR)) + geom_boxplot()
 ```
+
 ```{r}
 ggplot(data=df_sub, mapping=aes(x=RIDAGEYR, y=BMXWT)) + geom_point() + geom_smooth(method='lm')
 ```
+
 ## Dietary
+
 ```{r}
 head(dietary)
 ```
+
 ```{r}
 counts3 = colSums(is.na(dietary))
 nulls3 = names(counts3[counts3 > 1500])
 nulls3
 ```
+
 ```{r}
 di_sub = dietary[,!(names(dietary) %in% nulls3)]
 di_sub = na.omit(di_sub)
 ```
+
 ## Oral Health
+
 ```{r}
 head(oralHealth)
 ```
+
 ```{r}
 counts4 = colSums(is.na(oralHealth))
 nulls4 = names(counts4[counts4 > 1000])
 nulls4 = nulls4[nulls4 != "OHAROCDT"]
 nulls4
 ```
+
 ```{r}
 oh_sub = oralHealth[,!(names(oralHealth) %in% nulls4)]
 oh_sub = na.omit(oh_sub)
 ```
+
 ```{r}
 df2_sub = merge(oh_sub, di_sub, by="SEQN")
 init2_fit = glm(OHAROCDT ~ .-SEQN, data=df2_sub)
 summary(init2_fit)
 ```
+
 # Methods
 
 ## Shrinkage/Selection
 
 ```{r}
+# Create a combined data set
+oralHealthSub = subset(oralHealth, select = c("SEQN", "OHAROCDT"))
+oralAndFood = merge(oralHealthSub, dietary, by = "SEQN")
+oralAndFood[["SEQN"]] = NULL
+oralAndFood = na.omit(oralAndFood)
+#Remove "Refused" and "Don't Know" data points
+oralAndFood = filter(oralAndFood, DR1_040Z != 9)
+oralAndFood = filter(oralAndFood, DR1_040Z != 7)
+oralAndFood = filter(oralAndFood, DR1FS != 99)
+oralAndFood = filter(oralAndFood, DR1_030Z != 99)
+oralAndFood = filter(oralAndFood, DR1DRSTZ != 5)
 
+## SETUP FOR RIDGE AND LASSO
+set.seed(1)
+X = model.matrix(OHAROCDT ~ ., data = oralAndFood)[, -1]
+decay = oralAndFood$OHAROCDT
+grid <- 10^seq(10, -2, length = 100)
+ridge.mod <- glmnet(X, decay, alpha = 0, lambda = grid)
+train_idx <- sample(1:nrow(X), floor(.7*nrow(X)), replace = FALSE)
+trainingSet <- oralAndFood[train_idx,]
+testingSet <- oralAndFood[-train_idx,]
+```
+
+### Ridge
+
+```{r}
+## RIDGE 
+set.seed(1)
+cv.out <- cv.glmnet(X[train_idx,], decay[train_idx], alpha = 0)
+bestlam <- cv.out$lambda.min
+bestlam
+ridge.mod <- glmnet(X, decay, alpha = 0, lambda = grid)
+ridge.pred <- predict(ridge.mod, s = bestlam, newx = X[-train_idx,])
+out <- glmnet(X, decay, alpha = 0)
+predict(out, type = "coefficients", s = bestlam)[1:84,]
+
+## Still need to figure out how to make the True/False table for the ridge regression instead
+ridge.pred.train = predict(ridge.mod, newx = X[train_idx, ])
+ridge_train_error = mean((ridge.pred.train - decay[train_idx])^2)
+ridge_train_error
+ridge.pred.test = predict(ridge.mod, newx = X[-train_idx, ])
+ridge_test_error = mean((ridge.pred.test - decay[-train_idx])^2)
+ridge_test_error
+```
+
+### Lasso
+
+```{r}
+## LASSO
+set.seed(1)
+cv.out <- cv.glmnet(X[train_idx,], decay[train_idx], alpha = 0)
+bestlam <- cv.out$lambda.min
+bestlam
+lasso.mod <- glmnet(X[train_idx,], decay[train_idx], alpha = 1)
+lasso.pred <- predict(lasso.mod, s = bestlam, newx = X[-train_idx,])
+out <- glmnet(X, decay, alpha = 1)
+predict(out, type = "coefficients", s = .001)[1:84,]
+```
+
+Important variables (not zero coeficent): DR1DBIH, DR1DAY, DR1CCMNM, DR1FS, DR1IPFAT, DR1ISODI
+
+```{r}
+lasso.pred.train = predict(lasso.mod, newx = X[train_idx, ])
+lasso_train_error = mean((lasso.pred.train - decay[train_idx])^2)
+lasso_train_error
+lasso.pred.test = predict(lasso.mod, newx = X[-train_idx, ])
+lasso_test_error = mean((lasso.pred.test - decay[-train_idx])^2)
+lasso_test_error
+```
+
+```{r}
+## Using chosen lasso model predictors
+#modLasso <- lm(OHAROCDT~DR1DBIH+ DR1DAY+ DR1CCMNM+ DR1FS+ DR1IPFAT+ DR1ISODI, data = trainingSet)
+#train_pred_lasso <- predict(modLasso, newdata = trainingSet)
+#test_pred_lasso <- predict(modLasso, newdata = testingSet)
+#train_tab_lasso <- table(trainingSet$OHAROCDT, train_pred_lasso > 0.5)
+#test_tab_lasso <- table(testingSet$OHAROCDT, test_pred_lasso > 0.5)
+#train_tab_lasso
+#test_tab_lasso
+#table(trainingSet$OHAROCDT)
+#table(testingSet$OHAROCDT)
+```
+
+### Forward Stepwise
+
+```{r}
+# Forward step
+library(SignifReg)
+library(leaps)
+nullmodel <- lm(OHAROCDT ~ 1, data = oralAndFood)
+fullmodel <- lm(OHAROCDT ~ ., data = oralAndFood)
+## This will take a a few minutes
+select.p.fwd <- SignifReg(fit = nullmodel, scope = list(lower = formula(nullmodel), upper = formula(fullmodel)),alpha = 0.05, direction = "forward", adjust.method = "none", trace = FALSE)
+summary(select.p.fwd)
+```
+
+Important variables: DR1DAY, DR1FS, DR1FS, DR1DBIH, DR1ISODI, DR1CCMNM, DR1ITHEO, DR1IFDCD, DR1IFIBE DR1IPFAT, DR1ICALC, DR1IS180
+
+Common variables with Lasso: DR1DBIH, DR1DAY, DR1CCMNM, DR1FS, DR1IPFAT, DR1ISODI (all of the lasso ones)
+
+```{r}
+#using that model
+modFwd <- lm(OHAROCDT ~ DR1DAY + DR1FS + DR1FS + DR1DBIH + DR1ISODI + DR1CCMNM + DR1ITHEO + DR1IFDCD + DR1IFIBE + DR1IPFAT+ DR1ICALC + DR1IS180, data = trainingSet)
+train_pred_fwd <- predict(modFwd, newdata = trainingSet)
+test_pred_fwd <- predict(modFwd, newdata = testingSet)
+#train_tab <- table(trainingSet$OHAROCDT, train_pred_fwd > 0.5)
+#test_tab <- table(testingSet$OHAROCDT, test_pred_fwd > 0.5)
+#train_tab
+#test_tab
+#table(trainingSet$OHAROCDT)
+#table(testingSet$OHAROCDT)
+train_error <- mean((trainingSet$OHAROCDT - train_pred_fwd)^2)
+test_error <- mean((testingSet$OHAROCDT - test_pred_fwd)^2)
+train_error
+test_error
 ```
 
 ## 5-Fold Cross Validation
@@ -133,7 +260,6 @@ cvData = merge(demographics, bodyMeasures, by = "SEQN")
 #Remove interview-based and weight variables
 drop = c("SEQN", "SDDSRVYR", "RIDSTATR", "WTINTPRP", "WTNECPRP", "BMIWT", "BMXBMI", "BMDBMIC", "FIAPROXY", "MIAPROXY", "MIAINTRP", "SIAPROXY", "SDMVPSU", "SDMVSTRA")
 cvData = cvData[,!(names(cvData) %in% drop)]
-
 #Select participants in which a full body measure exam was conducted
 cvData = subset(cvData, cvData$BMDSTATS == 1)
 cvData[["BMDSTATS"]] = NULL
@@ -147,7 +273,6 @@ rem = c("RIDAGEMN", "RIDEXPRG", "BMXRECUM", "BMIRECUM", "BMXHEAD", "BMIHEAD", "B
 cvData = cvData[,!(names(cvData) %in% rem)]
 cvData = na.omit(cvData)
 set.seed(415)
-
 #Forward Selection
 forwardSel = regsubsets(BMXWT ~ ., data = cvData, method = "forward")
 forwardSum = summary(forwardSel)
@@ -157,7 +282,6 @@ coef(forwardSel, 9)
 #BIC
 which.min(forwardSum$bic)
 coef(forwardSel, 7)
-
 #Backward Selection
 backwardSel = regsubsets(BMXWT ~ ., data = cvData, method = "backward")
 backwardSum = summary(backwardSel)
@@ -167,7 +291,6 @@ coef(backwardSel, 9)
 #BIC
 which.min(backwardSum$bic)
 coef(backwardSel, 7)
-
 #Best Subsets Selection
 bestSub = regsubsets(BMXWT ~ ., data = cvData)
 bestSubSum = summary(bestSub)
@@ -177,28 +300,23 @@ coef(bestSub, 9)
 #BIC
 which.min(bestSubSum$bic)
 coef(bestSub, 7)
-
 #All of the selection methods agree on the model for both the CP and BIC criteria
 #so we compare both models selected by CP and BIC.
 #The DMDBORN4 variable has a coefficient of 0 so we'll remove it
-
 cpModel = glm(BMXWT ~ RIAGENDR + RIDAGEYR + DMDEDUC2 + AIALANGA + INDFMPIR + BMXLEG
               + BMXWAIST + BMXHIP, data = cvData)
 bicModel = glm(BMXWT ~ RIAGENDR + RIDAGEYR + AIALANGA + BMXLEG + BMXWAIST + BMXHIP,
                data = cvData)
 cpCV = cv.glm(cvData, cpModel, K = 5)$delta[1]
 bicCV = cv.glm(cvData, bicModel, K = 5)$delta[1]
-
 #CV Error Table
 cvErrors = c(cpCV, bicCV)
 cvTable = matrix(cvErrors, nrow = 1, ncol = 2)
 rownames(cvTable) = "5-Fold CV Error"
 colnames(cvTable) = c("CP", "BIC")
 kable(cvTable)
-
 #The BIC model has a lower cross validation error so that is the preferred model
 kable(coef(bicModel), col.names = "Coefficient")
-
 #Variable definition table for the paper
 definitions = c("Gender of the particpant", 
                 "Age in years at screening", 
@@ -230,18 +348,15 @@ forestData = filter(forestData, DR1_030Z != 99)
 forestData = filter(forestData, DR1DRSTZ != 5)
 forestData$OHAROCDT = as.factor(forestData$OHAROCDT)
 set.seed(415)
-
 rows = nrow(forestData)
 cols = ncol(forestData)
 sample = sample(seq(rows), size = floor(0.7 * rows))
 trainSet = forestData[sample,]
 testSet = forestData[-sample,]
-
 #Bagging (this will take few minutes)
 bagModel = randomForest(OHAROCDT ~ ., data = trainSet, mtry = cols - 1, 
                         importance = TRUE)
 varImpPlot(bagModel, n.var = 15, main = "Variable Importance Plot")
-
 predBag = predict(bagModel, testSet, type = "class") 
 table(predBag, testSet$OHAROCDT)
 #Percentage of correct predictions
@@ -249,7 +364,6 @@ correct = table(predBag, testSet$OHAROCDT)[1] + table(predBag, testSet$OHAROCDT)
 total = sum(table(predBag, testSet$OHAROCDT)[1:4])
 percCorrect = correct / total 
 percCorrect
-
 #Take top important variables and make a model of it then test it with
 #Using mean decrease accuracy as the metric, take top 10
 importance = sort(importance(bagModel)[,3], decreasing = TRUE)
@@ -263,7 +377,6 @@ correct = table(predImp, testSet$OHAROCDT)[1] + table(predImp, testSet$OHAROCDT)
 total = sum(table(predImp, testSet$OHAROCDT)[1:4])
 percCorrect = correct / total 
 percCorrect
-
 #Variable definition table for the paper
 definitions = c("Number of days between intake day and the day of family questionnaire administered in the household", 
                 "Intake day of the week", 
