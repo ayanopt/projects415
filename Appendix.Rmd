@@ -54,20 +54,7 @@ oralHealth = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_OHXREF.XPT")
 #Combine the data sets into one
 cvData = merge(demographics, bodyMeasures, by = "SEQN")
 #Remove interview-based and weight variables
-cvData[["SEQN"]] = NULL
-cvData[["SDDSRVYR"]] = NULL
-cvData[["RIDSTATR"]] = NULL
-cvData[["WTINTPRP"]] = NULL
-cvData[["WTMECPRP"]] = NULL
-cvData[["BMIWT"]] = NULL
-cvData[["BMXBMI"]] = NULL
-cvData[["BMDBMIC"]] = NULL
-cvData[["FIAPROXY"]] = NULL
-cvData[["MIAPROXY"]] = NULL
-cvData[["MIAINTRP"]] = NULL
-cvData[["SIAPROXY"]] = NULL
-cvData[["SDMVPSU"]] = NULL
-cvData[["SDMVSTRA"]] = NULL
+cvData = subset(cvData, select = -c("SEQN", "SDDSRVYR", "RIDSTATR", "WTINTPRP", "WTNECPRP", "BMIWT", "BMXBMI", "BMDBMIC", "FIAPROXY", "MIAPROXY", "MIAINTRP", "SIAPROXY", "SDMVPSU", "SDMVSTRA"))
 #Select participants in which a full body measure exam was conducted
 cvData = subset(cvData, cvData$BMDSTATS == 1)
 cvData[["BMDSTATS"]] = NULL
