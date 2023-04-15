@@ -147,7 +147,7 @@ oralAndFood = filter(oralAndFood, DR1FS != 99)
 oralAndFood = filter(oralAndFood, DR1_030Z != 99)
 oralAndFood = filter(oralAndFood, DR1DRSTZ != 5)
 
-## SETUP FOR RIDGE AND LASSO
+## SETUP FOR RIDGE AND LASSO 
 set.seed(1)
 X = model.matrix(OHAROCDT ~ ., data = oralAndFood)[, -1]
 decay = oralAndFood$OHAROCDT
@@ -171,7 +171,7 @@ ridge.pred <- predict(ridge.mod, s = bestlam, newx = X[-train_idx,])
 out <- glmnet(X, decay, alpha = 0)
 predict(out, type = "coefficients", s = bestlam)[1:84,]
 
-## Still need to figure out how to make the True/False table for the ridge regression instead
+## error checking for RIDGE
 ridge.pred.train = predict(ridge.mod, newx = X[train_idx, ])
 ridge_train_error = mean((ridge.pred.train - decay[train_idx])^2)
 ridge_train_error
@@ -197,6 +197,7 @@ predict(out, type = "coefficients", s = .001)[1:84,]
 Important variables (not zero coeficent): DR1DBIH, DR1DAY, DR1CCMNM, DR1FS, DR1IPFAT, DR1ISODI
 
 ```{r}
+## error checking for LASSO
 lasso.pred.train = predict(lasso.mod, newx = X[train_idx, ])
 lasso_train_error = mean((lasso.pred.train - decay[train_idx])^2)
 lasso_train_error
@@ -205,23 +206,10 @@ lasso_test_error = mean((lasso.pred.test - decay[-train_idx])^2)
 lasso_test_error
 ```
 
-```{r}
-## Using chosen lasso model predictors
-#modLasso <- lm(OHAROCDT~DR1DBIH+ DR1DAY+ DR1CCMNM+ DR1FS+ DR1IPFAT+ DR1ISODI, data = trainingSet)
-#train_pred_lasso <- predict(modLasso, newdata = trainingSet)
-#test_pred_lasso <- predict(modLasso, newdata = testingSet)
-#train_tab_lasso <- table(trainingSet$OHAROCDT, train_pred_lasso > 0.5)
-#test_tab_lasso <- table(testingSet$OHAROCDT, test_pred_lasso > 0.5)
-#train_tab_lasso
-#test_tab_lasso
-#table(trainingSet$OHAROCDT)
-#table(testingSet$OHAROCDT)
-```
-
-### Forward Stepwise
+### Forward Selection
 
 ```{r}
-# Forward step
+## FORWARD SELECTION
 library(SignifReg)
 library(leaps)
 nullmodel <- lm(OHAROCDT ~ 1, data = oralAndFood)
@@ -238,14 +226,9 @@ Common variables with Lasso: DR1DBIH, DR1DAY, DR1CCMNM, DR1FS, DR1IPFAT, DR1ISOD
 ```{r}
 #using that model
 modFwd <- lm(OHAROCDT ~ DR1DAY + DR1FS + DR1FS + DR1DBIH + DR1ISODI + DR1CCMNM + DR1ITHEO + DR1IFDCD + DR1IFIBE + DR1IPFAT+ DR1ICALC + DR1IS180, data = trainingSet)
+## error checking for FORWARD SELECTION
 train_pred_fwd <- predict(modFwd, newdata = trainingSet)
 test_pred_fwd <- predict(modFwd, newdata = testingSet)
-#train_tab <- table(trainingSet$OHAROCDT, train_pred_fwd > 0.5)
-#test_tab <- table(testingSet$OHAROCDT, test_pred_fwd > 0.5)
-#train_tab
-#test_tab
-#table(trainingSet$OHAROCDT)
-#table(testingSet$OHAROCDT)
 train_error <- mean((trainingSet$OHAROCDT - train_pred_fwd)^2)
 test_error <- mean((testingSet$OHAROCDT - test_pred_fwd)^2)
 train_error
