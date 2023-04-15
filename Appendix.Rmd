@@ -39,7 +39,84 @@ oralHealth = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_OHXREF.XPT")
 # Oral Health - Recommendation of Care
 # Dietary Interview - Individual Foods
 ```
+# Exploratory Data Analysis
+## Demographics
+```{r}
+# Investiage the demographics dataset
+head(demographics)
+```
+```{r}
+# Find all of the columns with NA values in them
+counts = colSums(is.na(demographics))
+nulls = names(counts[counts > 1000])
+nulls
+```
+## Body Measurements
+```{r}
+head(bodyMeasures)
+```
+```{r}
+# Find all columns with NA in them
+counts2 = colSums(is.na(bodyMeasures))
+nulls2 =  names(counts2[counts2 > 1000])
+nulls2
+```
+```{r}
+# Remove the null columns from bodyMeasures dataset
+bm_sub = bodyMeasures[,!(names(bodyMeasures) %in% nulls2)]
+```
 
+```{r}
+# Remove the null columns from bodyMeasures dataset
+cv_sub = demographics[,!(names(demographics) %in% nulls)]
+# Merge the two subsets together by SEQN id 
+df_sub = merge(cv_sub, bm_sub, by="SEQN")
+# Fit a simple linear regression with all variables
+init_fit = glm(BMXWT ~ .-SEQN, data = df_sub)
+summary(init_fit)
+```
+```{r}
+pairs(subset(df_sub, select = c("BMXWT", "RIAGENDR", "SIALANG", "SIAINTRP", "BMDSTATS", "BMXARML", "BMXARMC")))
+```
+```{r}
+df_sub = na.omit(df_sub)
+ggplot(data=df_sub, mapping=aes(x=RIAGENDR, y=BMXWT, group=RIAGENDR)) + geom_boxplot()
+```
+```{r}
+ggplot(data=df_sub, mapping=aes(x=RIDAGEYR, y=BMXWT)) + geom_point() + geom_smooth(method='lm')
+```
+## Dietary
+```{r}
+head(dietary)
+```
+```{r}
+counts3 = colSums(is.na(dietary))
+nulls3 = names(counts3[counts3 > 1500])
+nulls3
+```
+```{r}
+di_sub = dietary[,!(names(dietary) %in% nulls3)]
+di_sub = na.omit(di_sub)
+```
+## Oral Health
+```{r}
+head(oralHealth)
+```
+```{r}
+counts4 = colSums(is.na(oralHealth))
+nulls4 = names(counts4[counts4 > 1000])
+nulls4 = nulls4[nulls4 != "OHAROCDT"]
+nulls4
+```
+```{r}
+oh_sub = oralHealth[,!(names(oralHealth) %in% nulls4)]
+oh_sub = na.omit(oh_sub)
+```
+```{r}
+df2_sub = merge(oh_sub, di_sub, by="SEQN")
+init2_fit = glm(OHAROCDT ~ .-SEQN, data=df2_sub)
+summary(init2_fit)
+```
 # Methods
 
 ## Shrinkage/Selection
@@ -54,7 +131,9 @@ oralHealth = read_xpt("https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_OHXREF.XPT")
 #Combine the data sets into one
 cvData = merge(demographics, bodyMeasures, by = "SEQN")
 #Remove interview-based and weight variables
-cvData = subset(cvData, select = -c("SEQN", "SDDSRVYR", "RIDSTATR", "WTINTPRP", "WTNECPRP", "BMIWT", "BMXBMI", "BMDBMIC", "FIAPROXY", "MIAPROXY", "MIAINTRP", "SIAPROXY", "SDMVPSU", "SDMVSTRA"))
+drop = c("SEQN", "SDDSRVYR", "RIDSTATR", "WTINTPRP", "WTNECPRP", "BMIWT", "BMXBMI", "BMDBMIC", "FIAPROXY", "MIAPROXY", "MIAINTRP", "SIAPROXY", "SDMVPSU", "SDMVSTRA")
+cvData = cvData[,!(names(cvData) %in% drop)]
+
 #Select participants in which a full body measure exam was conducted
 cvData = subset(cvData, cvData$BMDSTATS == 1)
 cvData[["BMDSTATS"]] = NULL
@@ -64,18 +143,8 @@ cvData = filter(cvData, DMDYRUSZ != 77)
 cvData = filter(cvData, DMDYRUSZ != 77)
 #Remove variables which most if not all observations are NA to avoid excluding
 #most or all of the data
-cvData[["RIDAGEMN"]] = NULL
-cvData[["RIDEXPRG"]] = NULL
-cvData[["BMXRECUM"]] = NULL
-cvData[["BMIRECUM"]] = NULL
-cvData[["BMXHEAD"]] = NULL
-cvData[["BMIHEAD"]] = NULL
-cvData[["BMIHT"]] = NULL
-cvData[["BMILEG"]] = NULL
-cvData[["BMIARML"]] = NULL
-cvData[["BMIARMC"]] = NULL
-cvData[["BMIWAIST"]] = NULL
-cvData[["BMIHIP"]] = NULL
+rem = c("RIDAGEMN", "RIDEXPRG", "BMXRECUM", "BMIRECUM", "BMXHEAD", "BMIHEAD", "BMIHT", "BMILEG", "BMIARML", "BMIARMC", "BMIWAIST", "BMIHIP")
+cvData = cvData[,!(names(cvData) %in% rem)]
 cvData = na.omit(cvData)
 set.seed(415)
 
